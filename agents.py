@@ -470,11 +470,15 @@ class ReportWriterAgent:
     role = AgentRole.REPORT_WRITER
 
     SYSTEM = (
-        "You write clear, factual moderation reports. "
-        "You never name or identify specific users in public summaries. "
-        "You always include alternate explanations. "
-        "You are direct and avoid speculation beyond the evidence. "
-        "Respond only with JSON."
+        "You write moderation transparency notices for a civil society Discord community. "
+        "Your audience is two groups reading the same post: community members who may be "
+        "confused or concerned about seeing a moderation notice, and moderators using the "
+        "public channel as a transparency record. "
+        "Tone: calm, factual, non-alarming. Never speculative. Never accusatory. "
+        "You never name, identify, or hint at specific users. "
+        "You always acknowledge that innocent explanations exist and are being considered. "
+        "You always confirm that no automated action has been taken. "
+        "Respond only with JSON. No preamble, no markdown fences."
     )
 
     async def run(self, ticket: TicketEnvelope) -> TicketEnvelope:
@@ -483,28 +487,45 @@ class ReportWriterAgent:
         tactic_names = [m.tactic_name for m in ticket.tactic_matches]
         signal_types = [s.signal_type for s in ticket.coordination_signals]
 
-        # ── Public summary (anonymized) ────────────────────────────────────
-        pub_prompt = f"""Write a brief PUBLIC moderation notice for a community transparency channel.
-
-Ticket: {ticket.ticket_id}
+        # ── Public summary (slot-based structured notice) ──────────────────
+        pub_prompt = f"""You are writing a public moderation transparency notice.
+Fill in each field of the JSON below. Rules for each field are in [brackets].
+Observed signals: {signal_types}
 Confidence tier: {ticket.confidence_tier.value}
 Coordination score: {ticket.coordination_score:.0%}
-Signal types observed: {signal_types}
-Historical pattern matches: {tactic_names}
 False positive estimate: {ticket.tactics_false_positive_estimate:.0%}
-Alternate explanations: {ticket.all_alternate_explanations[:3]}
+Alternate explanations available: {ticket.all_alternate_explanations[:3]}
+Historical pattern matches: {[m.tactic_name for m in ticket.tactic_matches]}
+Ticket ID: {ticket.ticket_id}
+Respond with this exact JSON structure, all fields required:
+{{
+  "what_we_observed": "[1-2 sentences. Describe the structural/timing pattern in plain language. No usernames, no IDs, no political framing. Example: 'Several accounts posted in close succession targeting the same thread.' Focus on the pattern, not any judgment about intent.]",
+  "what_this_means": "[1 sentence. Explain what the confidence tier means at a human level. SPECULATIVE = one signal, many innocent explanations. CORROBORATED = multiple independent signals. CONFIRMED = convergent signals across multiple detection methods. Do not editorialize.]",
+  "alternate_explanations": "[1 sentence naming 2-3 of the innocent explanations that were considered. Frame as genuinely plausible, not as a disclaimer. Example: 'Explanations considered include a shared announcement driving simultaneous engagement, a notification burst, or members from the same external community joining around the same time.']",
+  "what_happens_next": "[1 sentence. State that human moderators are reviewing the evidence and that no automated action has been or will be taken by this system.]",
+  "false_positive_note": "[1 short sentence. State the false positive estimate as a percentage and that it is factored into moderator review. Example: 'The system estimates a {ticket.tactics_false_positive_estimate:.0%} false positive rate for this pattern.']",
+  "contest_instructions": "[1 sentence. Tell users they can reference ticket ID {ticket.ticket_id} when contacting moderators if they believe they were flagged in error.]"
+}}"""
 
-Rules:
-- Do NOT name any users, accounts, or user IDs
-- State that human moderators are reviewing this
-- Mention the ticket ID so affected users can request review
-- Include that alternate explanations exist
-- 3-4 sentences maximum
+        pub_result = await ollama_json(pub_prompt, self.SYSTEM, max_tokens=400)
 
-Respond with JSON: {{"public_summary": "..."}}"""
+        required_fields = [
+            "what_we_observed", "what_this_means", "alternate_explanations",
+            "what_happens_next", "false_positive_note", "contest_instructions",
+        ]
+        missing = [f for f in required_fields if not pub_result.get(f)]
+        if missing:
+            log.warning(f"[Agent4] Public notice missing fields: {missing} — using fallbacks")
 
-        pub_result = await ollama_json(pub_prompt, self.SYSTEM, max_tokens=200)
-        public_summary = pub_result.get("public_summary", self._fallback_public(ticket))
+        ticket.public_notice_fields = {
+            "what_we_observed":       pub_result.get("what_we_observed",       self._fallback_observed(ticket)),
+            "what_this_means":        pub_result.get("what_this_means",        self._fallback_tier(ticket)),
+            "alternate_explanations": pub_result.get("alternate_explanations", self._fallback_alternates(ticket)),
+            "what_happens_next":      pub_result.get("what_happens_next",      "Human moderators are reviewing this. No automated action has been taken."),
+            "false_positive_note":    pub_result.get("false_positive_note",    f"Estimated false positive rate: {ticket.tactics_false_positive_estimate:.0%}."),
+            "contest_instructions":   pub_result.get("contest_instructions",   f"Reference ticket `{ticket.ticket_id}` when contacting moderators if you believe you were flagged in error."),
+        }
+        public_summary = " ".join(ticket.public_notice_fields.values())
 
         # ── Mod report (full detail; account IDs only if CONFIRMED) ───────
         include_ids = ticket.confidence_tier == ConfidenceTier.CONFIRMED
@@ -588,18 +609,23 @@ To contest this report, reference ticket {ticket.ticket_id} to moderators.
         log.info(f"[Agent4] Reports ready for {ticket.ticket_id}")
         return ticket
 
-    def _fallback_public(self, ticket: TicketEnvelope) -> str:
-        tier = ticket.confidence_tier.value
-        fp = ticket.tactics_false_positive_estimate
-        return (
-            f"📋 **Moderation Notice** — Ticket `{ticket.ticket_id}`\n"
-            f"Our monitoring system flagged coordination patterns in this server "
-            f"({tier} confidence). Human moderators are reviewing the evidence. "
-            f"Note: {fp:.0%} estimated false positive rate — alternate innocent "
-            f"explanations exist and are being considered. "
-            f"If you believe you were flagged in error, reference `{ticket.ticket_id}` "
-            f"in a message to moderators."
-        )
+    def _fallback_observed(self, ticket: TicketEnvelope) -> str:
+        types = ", ".join(s.signal_type.replace("_", " ") for s in ticket.coordination_signals)
+        return f"The monitoring system detected structural coordination patterns: {types}."
+
+    def _fallback_tier(self, ticket: TicketEnvelope) -> str:
+        descriptions = {
+            "SPECULATIVE":  "A single signal was detected; many innocent explanations exist and are being considered.",
+            "CORROBORATED": "Multiple independent signals were detected pointing in the same direction.",
+            "CONFIRMED":    "Convergent signals were detected across multiple detection methods with low alternate explanation rate.",
+        }
+        return descriptions.get(ticket.confidence_tier.value, "Coordination patterns were detected.")
+
+    def _fallback_alternates(self, ticket: TicketEnvelope) -> str:
+        alts = ticket.all_alternate_explanations[:2]
+        if not alts:
+            return "Innocent explanations including organic community activity are being considered."
+        return f"Explanations considered include: {'; '.join(alts)}."
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

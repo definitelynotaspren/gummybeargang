@@ -97,6 +97,7 @@ class TicketEnvelope:
 
     # Agent 4 — Report Writer
     public_summary: str = ""       # anonymized, safe for public channel
+    public_notice_fields: dict = field(default_factory=dict)  # slot-based structured notice
     mod_report: str = ""           # full detail, mod channel only
     mod_action_checklist: list[str] = field(default_factory=list)
     report_ready: bool = False

@@ -23,6 +23,7 @@ log = logging.getLogger("watchdog.discord")
 AGENT_COORD_CHANNEL_ID  = int(os.environ.get("AGENT_COORD_CHANNEL_ID",  "0"))
 PUBLIC_CHANNEL_ID       = int(os.environ.get("PUBLIC_CHANNEL_ID",       "0"))
 MOD_CHANNEL_ID          = int(os.environ.get("MOD_CHANNEL_ID",          "0"))
+MOD_FORUM_CHANNEL_ID    = int(os.environ.get("MOD_FORUM_CHANNEL_ID",    "0"))
 
 # How many messages to buffer before triggering analysis
 TRIGGER_MESSAGE_COUNT   = int(os.environ.get("TRIGGER_MESSAGE_COUNT",   "20"))
@@ -57,6 +58,7 @@ class WatchdogBot(discord.Client):
             ("agent_coord", AGENT_COORD_CHANNEL_ID),
             ("public",      PUBLIC_CHANNEL_ID),
             ("mod",         MOD_CHANNEL_ID),
+            ("mod_forum",   MOD_FORUM_CHANNEL_ID),
         ]:
             ch = self.get_channel(cid)
             if ch:
@@ -108,7 +110,6 @@ class WatchdogBot(discord.Client):
                 ticket = await self.orchestrator.process({"trigger": trigger})
                 if ticket and ticket.report_ready:
                     await self._dispatch_reports(ticket)
-                    await self._post_agent_summary(ticket)
             except Exception as e:
                 log.error(f"Analysis pipeline error: {e}", exc_info=True)
 
@@ -148,7 +149,9 @@ class WatchdogBot(discord.Client):
 
     async def _dispatch_reports(self, ticket: TicketEnvelope):
         await self._send_public_notice(ticket)
-        await self._send_mod_report(ticket)
+        await self._send_mod_forum_thread(ticket)
+        await self._send_mod_checklist_ping(ticket)
+        await self._post_agent_summary(ticket)
 
     async def _send_public_notice(self, ticket: TicketEnvelope):
         ch = self.get_channel(PUBLIC_CHANNEL_ID)
@@ -168,76 +171,125 @@ class WatchdogBot(discord.Client):
             ConfidenceTier.CONFIRMED:    "🔴",
         }
 
+        fields = ticket.public_notice_fields
         embed = discord.Embed(
             title=f"{tier_emoji[tier]} Coordination Review Notice",
-            description=ticket.public_summary,
             color=color_map[tier],
             timestamp=datetime.now(timezone.utc),
         )
-        embed.add_field(
-            name="Ticket ID",
-            value=f"`{ticket.ticket_id}` — reference this to moderators if you believe you were flagged in error",
-            inline=False,
-        )
-        embed.add_field(
-            name="Confidence",
-            value=f"{tier.value} ({ticket.coordination_score:.0%} coordination score)",
-            inline=True,
-        )
-        embed.add_field(
-            name="False Positive Estimate",
-            value=f"{ticket.tactics_false_positive_estimate:.0%}",
-            inline=True,
-        )
-        embed.add_field(
-            name="Alternate Explanations Considered",
-            value="\n".join(f"• {a}" for a in ticket.all_alternate_explanations[:3]),
-            inline=False,
-        )
-        embed.set_footer(
-            text="No automated action has been taken. Human moderators are reviewing this."
-        )
+        embed.add_field(name="What we observed",                value=fields["what_we_observed"],       inline=False)
+        embed.add_field(name="Confidence level",                value=fields["what_this_means"],        inline=False)
+        embed.add_field(name="Alternate explanations",          value=fields["alternate_explanations"], inline=False)
+        embed.add_field(name="What happens next",               value=fields["what_happens_next"],      inline=True)
+        embed.add_field(name="False positive estimate",         value=fields["false_positive_note"],    inline=True)
+        embed.add_field(name="Ticket ID",                       value=f"`{ticket.ticket_id}`",          inline=False)
+        embed.add_field(name="Think you were flagged in error?", value=fields["contest_instructions"],  inline=False)
+        embed.set_footer(text="No automated action has been taken. Human moderators are reviewing this.")
         await ch.send(embed=embed)
 
-    async def _send_mod_report(self, ticket: TicketEnvelope):
-        ch = self.get_channel(MOD_CHANNEL_ID)
-        if not ch:
-            log.warning("Mod channel not found — skipping mod report")
+    async def _send_mod_forum_thread(self, ticket: TicketEnvelope):
+        """
+        Creates a forum thread per ticket in the mod forum channel.
+        Thread title: confidence tier + ticket ID.
+        First post: full case file. Summary embed is pinned.
+        """
+        forum = self.get_channel(MOD_FORUM_CHANNEL_ID)
+        if not forum:
+            log.warning("Mod forum channel not found — skipping forum thread")
             return
 
-        # Send in chunks if needed (Discord 2000 char limit)
+        thread_title = f"[{ticket.confidence_tier.value}] {ticket.ticket_id}"
+
+        applied_tags = []
+        if hasattr(forum, "available_tags"):
+            tier_name = ticket.confidence_tier.value
+            matching_tag = next(
+                (t for t in forum.available_tags if t.name.upper() == tier_name), None
+            )
+            if matching_tag:
+                applied_tags = [matching_tag]
+
         report = ticket.mod_report
         chunks = [report[i:i+1900] for i in range(0, len(report), 1900)]
+        first_chunk = f"```\n{chunks[0]}\n```" if chunks else "*(no report content)*"
 
-        await ch.send(f"📁 **Case File — `{ticket.ticket_id}`**")
-        for chunk in chunks:
-            await ch.send(f"```\n{chunk}\n```")
+        thread_with_message = await forum.create_thread(
+            name=thread_title,
+            content=first_chunk,
+            applied_tags=applied_tags,
+        )
+        thread = thread_with_message.thread
 
-        # Interactive checklist embed
+        for chunk in chunks[1:]:
+            await thread.send(f"```\n{chunk}\n```")
+
+        summary_embed = discord.Embed(
+            title=f"Case Summary — {ticket.ticket_id}",
+            color={
+                ConfidenceTier.SPECULATIVE:  discord.Color.light_grey(),
+                ConfidenceTier.CORROBORATED: discord.Color.orange(),
+                ConfidenceTier.CONFIRMED:    discord.Color.red(),
+            }[ticket.confidence_tier],
+            timestamp=datetime.now(timezone.utc),
+        )
+        summary_embed.add_field(name="Confidence",          value=ticket.confidence_tier.value,                    inline=True)
+        summary_embed.add_field(name="Coordination Score",  value=f"{ticket.coordination_score:.0%}",              inline=True)
+        summary_embed.add_field(name="False Positive Est.", value=f"{ticket.tactics_false_positive_estimate:.0%}", inline=True)
+        summary_embed.add_field(name="Signals Detected",   value=str(len(ticket.coordination_signals)),            inline=True)
+        summary_embed.add_field(name="Tactic Matches",     value=str(len(ticket.tactic_matches)),                  inline=True)
+        summary_embed.add_field(name="Evidence Items",     value=str(len(ticket.evidence_items)),                  inline=True)
+        summary_embed.set_footer(text="Reply in this thread with your moderator notes. No automated action has been taken.")
+        pinned_msg = await thread.send(embed=summary_embed)
+        await pinned_msg.pin()
+
+        log.info(f"[Bot] Forum thread created: {thread_title} → {thread.id}")
+
+    async def _send_mod_checklist_ping(self, ticket: TicketEnvelope):
+        """
+        Posts a short checklist ping to the flat mod channel.
+        Full case file lives in the forum thread.
+        """
+        ch = self.get_channel(MOD_CHANNEL_ID)
+        if not ch:
+            log.warning("Mod channel not found — skipping checklist ping")
+            return
+
+        tier = ticket.confidence_tier
+        tier_emoji = {
+            ConfidenceTier.SPECULATIVE:  "🟡",
+            ConfidenceTier.CORROBORATED: "🟠",
+            ConfidenceTier.CONFIRMED:    "🔴",
+        }
+
         embed = discord.Embed(
-            title=f"Moderator Actions Required — {ticket.ticket_id}",
-            description="Review the case file above and take one of the following actions:",
-            color=discord.Color.dark_blue(),
+            title=f"{tier_emoji[tier]} Action Required — {ticket.ticket_id}",
+            description=(
+                f"A `{tier.value}` tier coordination ticket has been filed.\n"
+                f"Full case file is in the forum thread above."
+            ),
+            color={
+                ConfidenceTier.SPECULATIVE:  discord.Color.light_grey(),
+                ConfidenceTier.CORROBORATED: discord.Color.orange(),
+                ConfidenceTier.CONFIRMED:    discord.Color.red(),
+            }[tier],
+            timestamp=datetime.now(timezone.utc),
         )
         embed.add_field(
-            name="Action Checklist",
+            name="Moderator Checklist",
             value="\n".join(ticket.mod_action_checklist),
             inline=False,
         )
         embed.add_field(
             name="Account Identifiers",
             value=(
-                "Available in audit log for CONFIRMED tier only. "
-                f"Current tier: **{ticket.confidence_tier.value}**"
-                if ticket.confidence_tier != ConfidenceTier.CONFIRMED
-                else "⚠️ CONFIRMED tier — account hashes in case file. "
-                     "Pull raw IDs from audit log before any action."
+                f"Withheld — tier is `{tier.value}`. Pull from audit log if needed."
+                if tier != ConfidenceTier.CONFIRMED
+                else "⚠️ CONFIRMED tier — account hashes in case file. Pull raw IDs from audit log before any action."
             ),
             inline=False,
         )
         embed.set_footer(
-            text=f"Pipeline: {' → '.join(ticket.completed_agents)} "
-                 f"| Rounds: {ticket.current_round}/{MAX_AGENT_ROUNDS}"
+            text=f"Pipeline: {' → '.join(ticket.completed_agents)} | Rounds: {ticket.current_round}/{MAX_AGENT_ROUNDS}"
         )
         await ch.send(embed=embed)
 
