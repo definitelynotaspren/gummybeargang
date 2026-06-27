@@ -27,34 +27,72 @@ from tactics_library import (
 
 log = logging.getLogger("watchdog.agents")
 
-OLLAMA_URL   = "http://localhost:11434"
-OLLAMA_MODEL = "llama3.2:1b"
+# ─── LLM backend config ───────────────────────────────────────────────────────
+# Set LLM_BACKEND=lmstudio to use LM Studio instead of Ollama.
+# LM Studio: load your model, start the Local Server (default: http://localhost:1234),
+# then set LM_STUDIO_MODEL to the model identifier shown in the LM Studio UI.
+LLM_BACKEND      = os.environ.get("LLM_BACKEND", "ollama")   # "ollama" | "lmstudio"
+OLLAMA_URL       = os.environ.get("OLLAMA_URL",       "http://localhost:11434")
+OLLAMA_MODEL     = os.environ.get("OLLAMA_MODEL",     "llama3.2:1b")
+LM_STUDIO_URL    = os.environ.get("LM_STUDIO_URL",    "http://localhost:1234")
+LM_STUDIO_MODEL  = os.environ.get("LM_STUDIO_MODEL",  "local-model")
 
 # Timing window for "synchronized" posting (seconds)
 SYNC_WINDOW_SECONDS = 45
 
 
-# ─── Ollama helper ────────────────────────────────────────────────────────────
+# ─── LLM helper ───────────────────────────────────────────────────────────────
 async def ollama_json(prompt: str, system: str = "", max_tokens: int = 400) -> dict:
+    """Calls the configured LLM backend and returns parsed JSON."""
+    try:
+        if LLM_BACKEND == "lmstudio":
+            return await _lmstudio_json(prompt, system, max_tokens)
+        return await _ollama_json(prompt, system, max_tokens)
+    except Exception as e:
+        log.warning(f"LLM call failed ({LLM_BACKEND}): {e}")
+        return {}
+
+
+async def _ollama_json(prompt: str, system: str, max_tokens: int) -> dict:
     payload = {
         "model": OLLAMA_MODEL,
         "prompt": (f"{system}\n\n{prompt}" if system else prompt),
         "stream": False,
         "options": {"temperature": 0.1, "num_predict": max_tokens},
     }
-    try:
-        async with aiohttp.ClientSession() as s:
-            async with s.post(
-                f"{OLLAMA_URL}/api/generate", json=payload,
-                timeout=aiohttp.ClientTimeout(total=20),
-            ) as r:
-                data = await r.json()
-                raw = data.get("response", "{}").strip()
-                raw = raw.removeprefix("```json").removeprefix("```").removesuffix("```").strip()
-                return json.loads(raw)
-    except Exception as e:
-        log.warning(f"Ollama call failed: {e}")
-        return {}
+    async with aiohttp.ClientSession() as s:
+        async with s.post(
+            f"{OLLAMA_URL}/api/generate", json=payload,
+            timeout=aiohttp.ClientTimeout(total=60),
+        ) as r:
+            data = await r.json()
+            raw = data.get("response", "{}").strip()
+            raw = raw.removeprefix("```json").removeprefix("```").removesuffix("```").strip()
+            return json.loads(raw)
+
+
+async def _lmstudio_json(prompt: str, system: str, max_tokens: int) -> dict:
+    # LM Studio exposes an OpenAI-compatible /v1/chat/completions endpoint
+    messages = []
+    if system:
+        messages.append({"role": "system", "content": system})
+    messages.append({"role": "user", "content": prompt})
+    payload = {
+        "model": LM_STUDIO_MODEL,
+        "messages": messages,
+        "temperature": 0.1,
+        "max_tokens": max_tokens,
+        "stream": False,
+    }
+    async with aiohttp.ClientSession() as s:
+        async with s.post(
+            f"{LM_STUDIO_URL}/v1/chat/completions", json=payload,
+            timeout=aiohttp.ClientTimeout(total=60),
+        ) as r:
+            data = await r.json()
+            raw = data["choices"][0]["message"]["content"].strip()
+            raw = raw.removeprefix("```json").removeprefix("```").removesuffix("```").strip()
+            return json.loads(raw)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
