@@ -1,0 +1,1089 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GummyBearGang — Agent Network</title>
+<style>
+  :root {
+    --bg: #0f1117;
+    --surface: #1a1d27;
+    --surface2: #22263a;
+    --border: #2e3148;
+    --accent: #6366f1;
+    --accent-dim: #4338ca;
+    --text: #e2e8f0;
+    --text-muted: #8892a4;
+    --danger: #ef4444;
+    --success: #22c55e;
+    --warning: #f59e0b;
+    --radius: 10px;
+    --font: 'Inter', system-ui, sans-serif;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font);
+    font-size: 14px;
+    line-height: 1.6;
+    min-height: 100vh;
+  }
+
+  /* ── Layout ── */
+  .shell {
+    display: grid;
+    grid-template-rows: 56px 1fr;
+    grid-template-columns: 220px 1fr;
+    height: 100vh;
+    overflow: hidden;
+  }
+
+  /* ── Top bar ── */
+  .topbar {
+    grid-column: 1 / -1;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 0 20px;
+  }
+
+  .topbar-logo {
+    font-weight: 700;
+    font-size: 15px;
+    letter-spacing: 0.02em;
+    color: var(--accent);
+  }
+
+  .topbar-sub {
+    color: var(--text-muted);
+    font-size: 12px;
+  }
+
+  .topbar-right {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--success);
+    display: inline-block;
+  }
+
+  .last-updated {
+    font-size: 11px;
+    color: var(--text-muted);
+  }
+
+  /* ── Sidebar ── */
+  .sidebar {
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    overflow-y: auto;
+    padding: 16px 0;
+  }
+
+  .nav-section {
+    padding: 0 12px;
+    margin-bottom: 4px;
+  }
+
+  .nav-label {
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    padding: 8px 8px 4px;
+  }
+
+  .nav-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 10px;
+    border-radius: 6px;
+    cursor: pointer;
+    color: var(--text-muted);
+    transition: background 0.15s, color 0.15s;
+    font-size: 13px;
+    user-select: none;
+  }
+
+  .nav-item:hover { background: var(--surface2); color: var(--text); }
+  .nav-item.active { background: rgba(99,102,241,0.15); color: var(--accent); font-weight: 600; }
+
+  .nav-icon { font-size: 15px; width: 18px; text-align: center; }
+
+  /* ── Main content ── */
+  .main {
+    overflow-y: auto;
+    padding: 28px 32px;
+    background: var(--bg);
+  }
+
+  /* ── Panels ── */
+  .panel { display: none; }
+  .panel.active { display: block; }
+
+  .page-title {
+    font-size: 20px;
+    font-weight: 700;
+    margin-bottom: 6px;
+  }
+
+  .page-sub {
+    color: var(--text-muted);
+    margin-bottom: 24px;
+    font-size: 13px;
+  }
+
+  /* ── Cards ── */
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 20px;
+    margin-bottom: 16px;
+  }
+
+  .card-header {
+    display: flex;
+    align-items: flex-start;
+    gap: 14px;
+    margin-bottom: 14px;
+  }
+
+  .agent-badge {
+    background: var(--accent-dim);
+    color: #fff;
+    font-size: 11px;
+    font-weight: 700;
+    padding: 2px 8px;
+    border-radius: 4px;
+    white-space: nowrap;
+    flex-shrink: 0;
+    margin-top: 3px;
+  }
+
+  .agent-info { flex: 1; }
+
+  .agent-name {
+    font-weight: 700;
+    font-size: 15px;
+  }
+
+  .agent-desc {
+    color: var(--text-muted);
+    font-size: 12px;
+    margin-top: 2px;
+  }
+
+  .agent-toggle {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+
+  /* toggle switch */
+  .toggle {
+    position: relative;
+    width: 36px;
+    height: 20px;
+    cursor: pointer;
+  }
+
+  .toggle input { opacity: 0; width: 0; height: 0; }
+
+  .slider {
+    position: absolute;
+    inset: 0;
+    background: var(--surface2);
+    border-radius: 20px;
+    border: 1px solid var(--border);
+    transition: 0.2s;
+  }
+
+  .slider::before {
+    content: "";
+    position: absolute;
+    width: 14px;
+    height: 14px;
+    left: 2px;
+    top: 2px;
+    background: var(--text-muted);
+    border-radius: 50%;
+    transition: 0.2s;
+  }
+
+  .toggle input:checked + .slider { background: var(--accent); border-color: var(--accent); }
+  .toggle input:checked + .slider::before { transform: translateX(16px); background: #fff; }
+
+  /* specialties row */
+  .specialties-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 12px;
+    min-height: 32px;
+    align-items: center;
+  }
+
+  .specialty-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 500;
+    color: #fff;
+    background: var(--chip-color, #6b7280);
+    cursor: default;
+  }
+
+  .specialty-chip .remove-btn {
+    cursor: pointer;
+    opacity: 0.7;
+    font-size: 14px;
+    line-height: 1;
+    transition: opacity 0.15s;
+    background: none;
+    border: none;
+    color: inherit;
+    padding: 0;
+  }
+
+  .specialty-chip .remove-btn:hover { opacity: 1; }
+
+  .priority-badge {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    background: rgba(0,0,0,0.25);
+    padding: 1px 5px;
+    border-radius: 3px;
+  }
+
+  .empty-specialties {
+    color: var(--text-muted);
+    font-size: 12px;
+    font-style: italic;
+  }
+
+  /* add specialty controls */
+  .add-specialty-row {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+
+  select, input[type="text"], textarea {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 6px;
+    padding: 7px 10px;
+    font-size: 13px;
+    font-family: var(--font);
+    outline: none;
+    transition: border-color 0.15s;
+  }
+
+  select:focus, input[type="text"]:focus, textarea:focus {
+    border-color: var(--accent);
+  }
+
+  select { cursor: pointer; }
+
+  /* ── Buttons ── */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 7px 14px;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    border: none;
+    transition: opacity 0.15s, transform 0.1s;
+    font-family: var(--font);
+  }
+
+  .btn:active { transform: scale(0.97); }
+
+  .btn-primary { background: var(--accent); color: #fff; }
+  .btn-primary:hover { background: var(--accent-dim); }
+
+  .btn-ghost {
+    background: var(--surface2);
+    color: var(--text);
+    border: 1px solid var(--border);
+  }
+
+  .btn-ghost:hover { border-color: var(--accent); color: var(--accent); }
+
+  .btn-danger { background: var(--danger); color: #fff; }
+  .btn-danger:hover { opacity: 0.85; }
+
+  .btn-sm { padding: 4px 10px; font-size: 12px; }
+
+  /* ── Thresholds ── */
+  .threshold-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 12px;
+    margin-top: 12px;
+  }
+
+  .threshold-item label {
+    display: block;
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-bottom: 4px;
+  }
+
+  .threshold-item input[type="number"] {
+    width: 100%;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 6px;
+    padding: 6px 10px;
+    font-size: 13px;
+    font-family: var(--font);
+    outline: none;
+  }
+
+  .threshold-item input[type="number"]:focus { border-color: var(--accent); }
+
+  .save-thresholds { margin-top: 12px; }
+
+  /* ── Domains panel ── */
+  .domains-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    gap: 14px;
+    margin-bottom: 24px;
+  }
+
+  .domain-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 14px 16px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .domain-swatch {
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  .domain-label { flex: 1; font-weight: 500; font-size: 13px; }
+  .domain-id { color: var(--text-muted); font-size: 11px; font-family: monospace; }
+
+  .new-domain-form {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 20px;
+    margin-bottom: 20px;
+  }
+
+  .form-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+
+  .form-group { display: flex; flex-direction: column; gap: 4px; }
+  .form-group label { font-size: 11px; color: var(--text-muted); }
+
+  /* ── Tactics panel ── */
+  .tactic-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 16px 20px;
+    margin-bottom: 12px;
+  }
+
+  .tactic-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 8px;
+  }
+
+  .tactic-id {
+    font-family: monospace;
+    font-size: 11px;
+    background: var(--surface2);
+    padding: 2px 7px;
+    border-radius: 4px;
+    color: var(--text-muted);
+  }
+
+  .tactic-name { font-weight: 700; }
+
+  .tactic-category {
+    margin-left: auto;
+    font-size: 11px;
+    color: var(--accent);
+    background: rgba(99,102,241,0.12);
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-weight: 600;
+  }
+
+  .tactic-desc { color: var(--text-muted); font-size: 13px; margin-bottom: 10px; }
+
+  .tactic-meta { display: flex; gap: 20px; flex-wrap: wrap; margin-bottom: 10px; }
+
+  .tactic-meta-item { font-size: 12px; }
+  .tactic-meta-item span { color: var(--text-muted); }
+
+  details { margin-top: 8px; }
+  summary {
+    cursor: pointer;
+    font-size: 12px;
+    color: var(--accent);
+    user-select: none;
+    padding: 2px 0;
+  }
+
+  .detail-list {
+    margin: 8px 0 4px 16px;
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+
+  .detail-list li { margin-bottom: 3px; }
+
+  /* ── Filter bar ── */
+  .filter-bar {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 20px;
+    flex-wrap: wrap;
+  }
+
+  .filter-bar input[type="text"] { min-width: 200px; flex: 1; }
+
+  /* ── Toast ── */
+  #toast-container {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    z-index: 9999;
+  }
+
+  .toast {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 16px;
+    font-size: 13px;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+    animation: slide-in 0.2s ease;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    max-width: 320px;
+  }
+
+  .toast.success { border-left: 3px solid var(--success); }
+  .toast.error   { border-left: 3px solid var(--danger); }
+  .toast.info    { border-left: 3px solid var(--accent); }
+
+  @keyframes slide-in {
+    from { opacity: 0; transform: translateX(20px); }
+    to   { opacity: 1; transform: translateX(0); }
+  }
+
+  /* ── Misc ── */
+  .divider {
+    height: 1px;
+    background: var(--border);
+    margin: 16px 0;
+  }
+
+  .section-title {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    margin-bottom: 10px;
+  }
+
+  .pill {
+    display: inline-block;
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 20px;
+    background: var(--surface2);
+    color: var(--text-muted);
+  }
+
+  .pill.high   { background: rgba(239,68,68,0.15);  color: #f87171; }
+  .pill.medium { background: rgba(245,158,11,0.15); color: #fbbf24; }
+  .pill.low    { background: rgba(34,197,94,0.15);  color: #4ade80; }
+
+  .modal-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.6);
+    z-index: 1000;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .modal-overlay.open { display: flex; }
+
+  .modal {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 24px;
+    width: 440px;
+    max-width: 95vw;
+  }
+
+  .modal h3 { font-size: 16px; font-weight: 700; margin-bottom: 16px; }
+
+  .modal-footer { display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px; }
+
+  .form-field { margin-bottom: 14px; }
+  .form-field label { display: block; font-size: 12px; color: var(--text-muted); margin-bottom: 5px; }
+  .form-field select,
+  .form-field input,
+  .form-field textarea { width: 100%; }
+  .form-field textarea { resize: vertical; min-height: 70px; }
+
+  input[type="color"] {
+    width: 40px;
+    height: 32px;
+    padding: 2px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: var(--surface2);
+    cursor: pointer;
+  }
+
+  .stat-row {
+    display: flex;
+    gap: 16px;
+    margin-bottom: 24px;
+    flex-wrap: wrap;
+  }
+
+  .stat-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 16px 20px;
+    flex: 1;
+    min-width: 120px;
+  }
+
+  .stat-value { font-size: 28px; font-weight: 700; color: var(--accent); }
+  .stat-label { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+</style>
+</head>
+<body>
+
+<div class="shell">
+
+  <!-- Top bar -->
+  <header class="topbar">
+    <span class="topbar-logo">🐻 GummyBearGang</span>
+    <span class="topbar-sub">Agent Network Management</span>
+    <div class="topbar-right">
+      <span class="status-dot"></span>
+      <span class="last-updated" id="last-updated">—</span>
+    </div>
+  </header>
+
+  <!-- Sidebar -->
+  <nav class="sidebar">
+    <div class="nav-section">
+      <div class="nav-label">Network</div>
+      <div class="nav-item active" data-panel="agents">
+        <span class="nav-icon">🤖</span> Agents
+      </div>
+      <div class="nav-item" data-panel="domains">
+        <span class="nav-icon">🏷️</span> Domains
+      </div>
+    </div>
+    <div class="nav-section">
+      <div class="nav-label">Reference</div>
+      <div class="nav-item" data-panel="tactics">
+        <span class="nav-icon">📚</span> Tactics Library
+      </div>
+    </div>
+  </nav>
+
+  <!-- Main -->
+  <main class="main">
+
+    <!-- ── Agents Panel ── -->
+    <div class="panel active" id="panel-agents">
+      <div class="page-title">Agent Network</div>
+      <div class="page-sub">Assign domain specialties to focus each agent's pattern-matching on emerging scam types or disruption campaigns.</div>
+
+      <div class="stat-row" id="stats-row"></div>
+
+      <div id="agents-list"></div>
+    </div>
+
+    <!-- ── Domains Panel ── -->
+    <div class="panel" id="panel-domains">
+      <div class="page-title">Domain Library</div>
+      <div class="page-sub">Manage the catalog of scam types and disruption domains that can be assigned as agent specialties.</div>
+
+      <div class="new-domain-form">
+        <div class="section-title">Add New Domain</div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Label</label>
+            <input type="text" id="new-domain-label" placeholder="e.g. Pig Butchering Scam" style="min-width:220px;">
+          </div>
+          <div class="form-group">
+            <label>Color</label>
+            <input type="color" id="new-domain-color" value="#6366f1">
+          </div>
+          <div class="form-group" style="justify-content:flex-end;margin-top:auto;">
+            <button class="btn btn-primary" onclick="createDomain()">＋ Add Domain</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="domains-grid" id="domains-grid"></div>
+    </div>
+
+    <!-- ── Tactics Panel ── -->
+    <div class="panel" id="panel-tactics">
+      <div class="page-title">Historical Tactics Library</div>
+      <div class="page-sub">Documented disruption patterns from COINTELPRO-era research, Stanford Internet Observatory, and EU DisinfoLab. Used by Agent 2 (Tactics Reference) for signal matching.</div>
+
+      <div class="filter-bar">
+        <input type="text" id="tactics-search" placeholder="Search tactics…" oninput="filterTactics()">
+        <select id="tactics-cat-filter" onchange="filterTactics()">
+          <option value="">All categories</option>
+        </select>
+      </div>
+
+      <div id="tactics-list"></div>
+    </div>
+
+  </main>
+</div>
+
+<!-- Add Specialty Modal -->
+<div class="modal-overlay" id="modal-specialty">
+  <div class="modal">
+    <h3>Assign Specialty</h3>
+    <input type="hidden" id="modal-agent-id">
+
+    <div class="form-field">
+      <label>Domain</label>
+      <select id="modal-domain-select"></select>
+    </div>
+
+    <div class="form-field">
+      <label>Priority</label>
+      <select id="modal-priority">
+        <option value="high">High — active emerging threat</option>
+        <option value="medium" selected>Medium — ongoing concern</option>
+        <option value="low">Low — monitor passively</option>
+      </select>
+    </div>
+
+    <div class="form-field">
+      <label>Notes (optional)</label>
+      <textarea id="modal-notes" placeholder="Context about why this specialty is being assigned…"></textarea>
+    </div>
+
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="submitSpecialty()">Assign</button>
+    </div>
+  </div>
+</div>
+
+<!-- Toast container -->
+<div id="toast-container"></div>
+
+<script>
+// ── State ──────────────────────────────────────────────────────────────────
+let agents = [];
+let domains = [];
+let tactics = [];
+
+// ── Nav ───────────────────────────────────────────────────────────────────
+document.querySelectorAll('.nav-item[data-panel]').forEach(item => {
+  item.addEventListener('click', () => {
+    document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+    document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+    item.classList.add('active');
+    document.getElementById('panel-' + item.dataset.panel).classList.add('active');
+  });
+});
+
+// ── Toast ─────────────────────────────────────────────────────────────────
+function toast(msg, type = 'info') {
+  const el = document.createElement('div');
+  el.className = `toast ${type}`;
+  el.textContent = msg;
+  document.getElementById('toast-container').appendChild(el);
+  setTimeout(() => el.remove(), 3500);
+}
+
+// ── API helpers ───────────────────────────────────────────────────────────
+async function api(path, opts = {}) {
+  const res = await fetch('/api' + path, {
+    headers: { 'Content-Type': 'application/json' },
+    ...opts,
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(text || res.statusText);
+  }
+  if (res.status === 204) return null;
+  return res.json();
+}
+
+// ── Load ──────────────────────────────────────────────────────────────────
+async function loadAll() {
+  [agents, domains] = await Promise.all([api('/agents'), api('/domains')]);
+  tactics = await api('/tactics').catch(() => []);
+  renderStats();
+  renderAgents();
+  renderDomains();
+  renderTactics();
+  const cfg = await api('/config');
+  if (cfg.last_updated) {
+    document.getElementById('last-updated').textContent =
+      'Saved ' + new Date(cfg.last_updated).toLocaleTimeString();
+  }
+}
+
+// ── Stats ─────────────────────────────────────────────────────────────────
+function renderStats() {
+  const totalSpecialties = agents.reduce((n, a) => n + a.specialties.length, 0);
+  const activeAgents = agents.filter(a => a.active).length;
+  document.getElementById('stats-row').innerHTML = `
+    <div class="stat-card">
+      <div class="stat-value">${activeAgents}</div>
+      <div class="stat-label">Active agents</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value">${domains.length}</div>
+      <div class="stat-label">Domains tracked</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value">${totalSpecialties}</div>
+      <div class="stat-label">Specialties assigned</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value">${tactics.length}</div>
+      <div class="stat-label">Tactics in library</div>
+    </div>
+  `;
+}
+
+// ── Agents ────────────────────────────────────────────────────────────────
+function renderAgents() {
+  const el = document.getElementById('agents-list');
+  el.innerHTML = agents.map(agent => `
+    <div class="card" id="agent-card-${agent.id}">
+      <div class="card-header">
+        <span class="agent-badge">${agent.role}</span>
+        <div class="agent-info">
+          <div class="agent-name">${agent.name}</div>
+          <div class="agent-desc">${agent.description}</div>
+        </div>
+        <label class="agent-toggle">
+          <label class="toggle">
+            <input type="checkbox" ${agent.active ? 'checked' : ''}
+              onchange="toggleAgent('${agent.id}', this.checked)">
+            <span class="slider"></span>
+          </label>
+          ${agent.active ? 'Active' : 'Paused'}
+        </label>
+      </div>
+
+      <div class="section-title">Specialties</div>
+      <div class="specialties-row" id="specs-${agent.id}">
+        ${renderSpecialtyChips(agent)}
+      </div>
+
+      <div class="add-specialty-row">
+        <button class="btn btn-ghost btn-sm" onclick="openModal('${agent.id}')">＋ Assign Specialty</button>
+      </div>
+
+      ${Object.keys(agent.thresholds).length ? `
+        <div class="divider"></div>
+        <div class="section-title">Thresholds</div>
+        <div class="threshold-grid">
+          ${Object.entries(agent.thresholds).map(([k, v]) => `
+            <div class="threshold-item">
+              <label>${k.replace(/_/g, ' ')}</label>
+              <input type="number" step="any" value="${v}"
+                id="thr-${agent.id}-${k}"
+                onchange="markThresholdDirty('${agent.id}')">
+            </div>
+          `).join('')}
+        </div>
+        <div class="save-thresholds">
+          <button class="btn btn-ghost btn-sm" id="save-thr-${agent.id}" style="display:none"
+            onclick="saveThresholds('${agent.id}')">💾 Save thresholds</button>
+        </div>
+      ` : ''}
+    </div>
+  `).join('');
+}
+
+function renderSpecialtyChips(agent) {
+  if (!agent.specialties.length) {
+    return '<span class="empty-specialties">No specialties assigned — agent uses default detection across all domains.</span>';
+  }
+  return agent.specialties.map(s => `
+    <span class="specialty-chip" style="--chip-color:${s.color}">
+      ${s.label}
+      <span class="priority-badge">${s.priority}</span>
+      <button class="remove-btn" title="Remove" onclick="removeSpecialty('${agent.id}', '${s.domain_id}')">×</button>
+    </span>
+  `).join('');
+}
+
+function refreshAgentCard(agent) {
+  document.getElementById(`specs-${agent.id}`).innerHTML = renderSpecialtyChips(agent);
+}
+
+async function toggleAgent(agentId, active) {
+  try {
+    const updated = await api(`/agents/${agentId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ active }),
+    });
+    const a = agents.find(x => x.id === agentId);
+    if (a) a.active = updated.active;
+    renderStats();
+    toast(`${updated.name} ${active ? 'activated' : 'paused'}`, 'success');
+  } catch (e) {
+    toast(e.message, 'error');
+  }
+}
+
+function markThresholdDirty(agentId) {
+  document.getElementById(`save-thr-${agentId}`).style.display = 'inline-flex';
+}
+
+async function saveThresholds(agentId) {
+  const agent = agents.find(a => a.id === agentId);
+  const thresholds = {};
+  for (const k of Object.keys(agent.thresholds)) {
+    const el = document.getElementById(`thr-${agentId}-${k}`);
+    thresholds[k] = parseFloat(el.value);
+  }
+  try {
+    const updated = await api(`/agents/${agentId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ thresholds }),
+    });
+    Object.assign(agent.thresholds, updated.thresholds);
+    document.getElementById(`save-thr-${agentId}`).style.display = 'none';
+    toast('Thresholds saved', 'success');
+  } catch (e) {
+    toast(e.message, 'error');
+  }
+}
+
+// ── Specialties ───────────────────────────────────────────────────────────
+function openModal(agentId) {
+  document.getElementById('modal-agent-id').value = agentId;
+  const agent = agents.find(a => a.id === agentId);
+  const assignedIds = new Set((agent.specialties || []).map(s => s.domain_id));
+  const sel = document.getElementById('modal-domain-select');
+  sel.innerHTML = domains
+    .filter(d => !assignedIds.has(d.id))
+    .map(d => `<option value="${d.id}">${d.label}</option>`)
+    .join('');
+  if (!sel.options.length) {
+    toast('All domains already assigned to this agent.', 'info');
+    return;
+  }
+  document.getElementById('modal-notes').value = '';
+  document.getElementById('modal-priority').value = 'medium';
+  document.getElementById('modal-specialty').classList.add('open');
+}
+
+function closeModal() {
+  document.getElementById('modal-specialty').classList.remove('open');
+}
+
+async function submitSpecialty() {
+  const agentId = document.getElementById('modal-agent-id').value;
+  const domainId = document.getElementById('modal-domain-select').value;
+  const priority = document.getElementById('modal-priority').value;
+  const notes = document.getElementById('modal-notes').value.trim();
+  try {
+    const spec = await api(`/agents/${agentId}/specialties`, {
+      method: 'POST',
+      body: JSON.stringify({ domain_id: domainId, priority, notes }),
+    });
+    const agent = agents.find(a => a.id === agentId);
+    agent.specialties.push(spec);
+    refreshAgentCard(agent);
+    renderStats();
+    closeModal();
+    toast(`Specialty assigned: ${spec.label}`, 'success');
+  } catch (e) {
+    toast(e.message, 'error');
+  }
+}
+
+async function removeSpecialty(agentId, domainId) {
+  try {
+    await api(`/agents/${agentId}/specialties/${domainId}`, { method: 'DELETE' });
+    const agent = agents.find(a => a.id === agentId);
+    agent.specialties = agent.specialties.filter(s => s.domain_id !== domainId);
+    refreshAgentCard(agent);
+    renderStats();
+    toast('Specialty removed', 'info');
+  } catch (e) {
+    toast(e.message, 'error');
+  }
+}
+
+// ── Domains ───────────────────────────────────────────────────────────────
+function renderDomains() {
+  document.getElementById('domains-grid').innerHTML = domains.map(d => `
+    <div class="domain-card">
+      <div class="domain-swatch" style="background:${d.color}"></div>
+      <div style="flex:1">
+        <div class="domain-label">${d.label}</div>
+        <div class="domain-id">${d.id}</div>
+      </div>
+      <button class="btn btn-ghost btn-sm" onclick="deleteDomain('${d.id}')" title="Delete domain">🗑</button>
+    </div>
+  `).join('') || '<p style="color:var(--text-muted)">No domains yet.</p>';
+}
+
+async function createDomain() {
+  const label = document.getElementById('new-domain-label').value.trim();
+  const color = document.getElementById('new-domain-color').value;
+  if (!label) { toast('Label is required', 'error'); return; }
+  try {
+    const d = await api('/domains', { method: 'POST', body: JSON.stringify({ label, color }) });
+    domains.push(d);
+    renderDomains();
+    renderStats();
+    document.getElementById('new-domain-label').value = '';
+    toast(`Domain "${d.label}" created`, 'success');
+  } catch (e) {
+    toast(e.message, 'error');
+  }
+}
+
+async function deleteDomain(domainId) {
+  const d = domains.find(x => x.id === domainId);
+  if (!confirm(`Delete domain "${d?.label}"? This will also remove it from all agent specialties.`)) return;
+  try {
+    await api(`/domains/${domainId}`, { method: 'DELETE' });
+    domains = domains.filter(x => x.id !== domainId);
+    // reflect on agents too
+    agents.forEach(a => { a.specialties = a.specialties.filter(s => s.domain_id !== domainId); });
+    renderDomains();
+    renderAgents();
+    renderStats();
+    toast('Domain deleted', 'info');
+  } catch (e) {
+    toast(e.message, 'error');
+  }
+}
+
+// ── Tactics ───────────────────────────────────────────────────────────────
+function renderTactics() {
+  const cats = [...new Set(tactics.map(t => t.category))];
+  const catSel = document.getElementById('tactics-cat-filter');
+  catSel.innerHTML = '<option value="">All categories</option>' +
+    cats.map(c => `<option value="${c}">${c.replace(/_/g, ' ')}</option>`).join('');
+  filterTactics();
+}
+
+function filterTactics() {
+  const query = document.getElementById('tactics-search').value.toLowerCase();
+  const cat = document.getElementById('tactics-cat-filter').value;
+  const filtered = tactics.filter(t => {
+    const matchCat = !cat || t.category === cat;
+    const matchQ = !query ||
+      t.name.toLowerCase().includes(query) ||
+      t.description.toLowerCase().includes(query) ||
+      t.tactic_id.toLowerCase().includes(query);
+    return matchCat && matchQ;
+  });
+  document.getElementById('tactics-list').innerHTML = filtered.map(t => `
+    <div class="tactic-card">
+      <div class="tactic-header">
+        <span class="tactic-id">${t.tactic_id}</span>
+        <span class="tactic-name">${t.name}</span>
+        <span class="tactic-category">${t.category.replace(/_/g, ' ')}</span>
+      </div>
+      <div class="tactic-desc">${t.description}</div>
+      <div class="tactic-meta">
+        <div class="tactic-meta-item"><span>Score weight: </span>${(t.coordination_score_weight * 100).toFixed(0)}%</div>
+        <div class="tactic-meta-item"><span>Multi-account: </span>${t.requires_multiple_accounts ? 'Yes' : 'No'}</div>
+      </div>
+      <details>
+        <summary>Behavioral indicators (${t.behavioral_indicators.length})</summary>
+        <ul class="detail-list">
+          ${t.behavioral_indicators.map(i => `<li>${i}</li>`).join('')}
+        </ul>
+      </details>
+      <details>
+        <summary>Alternate explanations (${t.alternate_explanations.length})</summary>
+        <ul class="detail-list">
+          ${t.alternate_explanations.map(e => `<li>${e}</li>`).join('')}
+        </ul>
+      </details>
+      <details>
+        <summary>Sources (${t.historical_sources.length})</summary>
+        <ul class="detail-list">
+          ${t.historical_sources.map(s => `<li>${s}</li>`).join('')}
+        </ul>
+      </details>
+    </div>
+  `).join('') || '<p style="color:var(--text-muted)">No tactics match the current filter.</p>';
+}
+
+// ── Close modal on overlay click ──────────────────────────────────────────
+document.getElementById('modal-specialty').addEventListener('click', e => {
+  if (e.target === e.currentTarget) closeModal();
+});
+
+// ── Init ──────────────────────────────────────────────────────────────────
+loadAll();
+</script>
+</body>
+</html>
